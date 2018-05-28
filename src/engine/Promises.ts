@@ -29,19 +29,20 @@ export interface IPromise<T> {
  *
  * [[include:Promises.md]]
  */
-export class Promise<T> implements IPromise<T> {
+export class ExPromise<T> implements IPromise<T> {
    private _state: PromiseState = PromiseState.Pending;
    private _value: T;
    private _successCallbacks: { (value?: T): any }[] = [];
    private _rejectCallback: (value?: any) => any = () => { return; };
    private _errorCallback: (value?: any) => any;
+   private _nativePromise = new Promise<T>(() => { /** */ });
 
    /**
     * Create and resolve a Promise with an optional value
     * @param value  An optional value to wrap in a resolved promise
     */
-   public static resolve<T>(value?: T): Promise<T> {
-      var promise = (new Promise<T>()).resolve(value);
+   public static resolve<T>(value?: T): ExPromise<T> {
+      var promise = (new ExPromise<T>()).resolve(value);
 
       return promise;
    }
@@ -50,8 +51,8 @@ export class Promise<T> implements IPromise<T> {
     * Create and reject a Promise with an optional value
     * @param value  An optional value to wrap in a rejected promise
     */
-   public static reject<T>(value?: T): Promise<T> {
-      var promise = (new Promise<T>()).reject(value);
+   public static reject<T>(value?: T): ExPromise<T> {
+      var promise = (new ExPromise<T>()).reject(value);
 
       return promise;
    }
@@ -60,16 +61,16 @@ export class Promise<T> implements IPromise<T> {
     * Returns a new promise that resolves when all the promises passed to it resolve, or rejects
     * when at least 1 promise rejects.
     */
-   public static join<T>(promises: Promise<T>[]): Promise<T>;
+   public static join<T>(promises: ExPromise<T>[]): ExPromise<T>;
 
    /**
     * Returns a new promise that resolves when all the promises passed to it resolve, or rejects
     * when at least 1 promise rejects.
     */
-   public static join<T>(...promises: Promise<T>[]): Promise<T>;
+   public static join<T>(...promises: ExPromise<T>[]): ExPromise<T>;
 
    public static join<T>() {
-      var promises: Promise<T>[] = [];
+      let promises: ExPromise<T>[] = [];
 
       if (arguments.length > 0 && !Array.isArray(arguments[0])) {
          for (var _i = 0; _i < arguments.length; _i++) {
@@ -79,39 +80,13 @@ export class Promise<T> implements IPromise<T> {
          promises = arguments[0];
       }
 
-      var joinedPromise = new Promise<T>();
+      let joinedPromise = new ExPromise<T>();
       if (!promises || !promises.length) {
          return joinedPromise.resolve();
       }
 
-      var total = promises.length;
-      var successes = 0;
-      var rejects = 0;
-      var errors: any = [];
+      Promise.all(joinedPromise);
 
-      promises.forEach((p) => {
-         p.then(
-            () => {
-               successes += 1;
-               if (successes === total) {
-                  joinedPromise.resolve();
-               } else if (successes + rejects + errors.length === total) {
-                  joinedPromise.reject(errors);
-               }
-            },
-            () => {
-               rejects += 1;
-               if (successes + rejects + errors.length === total) {
-                  joinedPromise.reject(errors);
-               }
-            }
-         ).error((e) => {
-            errors.push(e);
-            if ((errors.length + successes + rejects) === total) {
-               joinedPromise.reject(errors);
-            }
-         });
-      });
 
 
       return joinedPromise;
@@ -123,42 +98,18 @@ export class Promise<T> implements IPromise<T> {
     * @param rejectCallback   Call on rejection of promise
     */
    public then(successCallback?: (value?: T) => any, rejectCallback?: (value?: any) => any) {
-      if (successCallback) {
-         this._successCallbacks.push(successCallback);
-
-         // If the promise is already resovled call immediately
-         if (this.state() === PromiseState.Resolved) {
-            try {
-               successCallback.call(this, this._value);
-            } catch (e) {
-               this._handleError(e);
-            }
-         }
-      }
-      if (rejectCallback) {
-         this._rejectCallback = rejectCallback;
-
-         // If the promise is already rejected call immediately
-         if (this.state() === PromiseState.Rejected) {
-            try {
-               rejectCallback.call(this, this._value);
-            } catch (e) {
-               this._handleError(e);
-            }
-         }
-      }
+      this._nativePromise.then(successCallback, rejectCallback);
 
       return this;
    }
 
    /**
-    * Add an error callback to the promise 
+    * Add an error callback to the promise
     * @param errorCallback  Call if there was an error in a callback
     */
    public error(errorCallback?: (value?: any) => any) {
-      if (errorCallback) {
-         this._errorCallback = errorCallback;
-      }
+      this._nativePromise.catch(errorCallback);
+
       return this;
    }
 
@@ -166,21 +117,20 @@ export class Promise<T> implements IPromise<T> {
     * Resolve the promise and pass an option value to the success callbacks
     * @param value  Value to pass to the success callbacks
     */
-   public resolve(value?: T): Promise<T> {
+   public resolve(value?: T): ExPromise<T> {
       if (this._state === PromiseState.Pending) {
          this._value = value;
          try {
-            this._state = PromiseState.Resolved;
-            this._successCallbacks.forEach((cb) => {
-               cb.call(this, this._value);
-            });
-
+            Promise.resolve(value);
          } catch (e) {
             this._handleError(e);
          }
       } else {
          throw new Error('Cannot resolve a promise that is not in a pending state!');
       }
+
+
+
       return this;
    }
 
@@ -193,7 +143,7 @@ export class Promise<T> implements IPromise<T> {
          this._value = value;
          try {
             this._state = PromiseState.Rejected;
-            this._rejectCallback.call(this, this._value);
+            Promise.reject(value);
          } catch (e) {
             this._handleError(e);
          }
